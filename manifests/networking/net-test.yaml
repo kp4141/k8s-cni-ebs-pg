@@ -1,0 +1,101 @@
+# Fixtures for CNI validation.
+#
+# Deliberately shaped to force traffic across node boundaries: if everything
+# landed on one node, pod-to-pod would work even with a completely broken
+# overlay and the test would prove nothing.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: net-test
+  labels:
+    purpose: cni-validation
+
+---
+# Two replicas pinned to *different* nodes by required anti-affinity, so any
+# client necessarily talks to at least one pod that is not local to it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: net-test
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: web
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: net-test
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+
+---
+# A client on every node, including the control-plane, so the test matrix
+# covers same-node and cross-node paths from all three directions.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: client
+  namespace: net-test
+spec:
+  selector:
+    matchLabels:
+      app: client
+  template:
+    metadata:
+      labels:
+        app: client
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: client
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep infinity"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              memory: 32Mi

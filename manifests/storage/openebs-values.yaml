@@ -1,0 +1,48 @@
+# OpenEBS chart overrides for a kind-on-macOS lab.
+#
+# The umbrella chart enables five storage engines and a bundled Loki/Alloy
+# logging stack by default. Most of that cannot work here, and leaving it on
+# produces a namespace full of CrashLoopBackOff pods that look like a broken
+# install. We turn on exactly one engine.
+#
+# Toggle names come from the chart's dependency conditions:
+#   helm show chart openebs/openebs --version 4.5.1
+
+engines:
+  local:
+    # LocalPV Hostpath: the provisioner carves PVs out of a directory on the
+    # node (/var/openebs/local). No kernel modules, no spare block devices,
+    # no special hardware -- the only engine that works unmodified inside a
+    # kind node.
+    hostpath:
+      enabled: true
+
+    # Needs a real LVM volume group on the node. A kind node is a container
+    # with no VG and no spare block device to build one from.
+    lvm:
+      enabled: false
+
+    # Needs a ZFS zpool and the ZFS kernel module. Not present in the Colima
+    # VM's kernel.
+    zfs:
+      enabled: false
+
+    # Still marked pre-stable upstream; off by default and left off.
+    rawfile:
+      enabled: false
+
+  replicated:
+    # Mayastor needs hugepages, an NVMe-capable kernel and dedicated block
+    # devices for its DiskPools. None of that survives the
+    # macOS -> Colima VM -> Docker -> kind node stack.
+    # See docs/04 §"Why not Mayastor".
+    mayastor:
+      enabled: false
+
+# OpenEBS bundles Loki + Alloy for log aggregation. We run our own observability
+# stack (kube-prometheus-stack) and two competing collectors on an 8 GB VM will
+# fight over memory, so both are off.
+loki:
+  enabled: false
+alloy:
+  enabled: false

@@ -1,0 +1,338 @@
+# Persistence demo workload, instrumented with application metrics.
+#
+# Two jobs:
+#
+#   1. Persistence proof. Writes boots.txt (one line per container start),
+#      ledger.log and bulk.dat to an OpenEBS volume. A pod deleted and
+#      rescheduled sees its own previous boot records.
+#
+#   2. Application metrics. Exposes /metrics on :8080 with counters, a
+#      histogram and gauges describing its OWN behaviour -- writes attempted,
+#      bytes written, write latency, errors.
+#
+# The distinction in (2) matters. cAdvisor and kube-state-metrics already
+# describe this pod's CPU, memory and restart count, but those are the
+# infrastructure's view of a black box. They cannot tell you that a write took
+# 40ms, or that 3 writes failed. Only the application can report that, and only
+# if it is instrumented to.
+#
+# Written against the Python standard library on purpose: no pip install at
+# container start, so the pod has no network dependency and starts fast.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: storage-demo
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ledger-app
+  namespace: storage-demo
+data:
+  app.py: |
+    """Ledger: writes to a persistent volume and reports on itself."""
+    import os
+    import threading
+    import time
+    from datetime import datetime, timezone
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    DATA = os.environ.get("DATA_DIR", "/data")
+    PORT = int(os.environ.get("METRICS_PORT", "8080"))
+    INTERVAL = float(os.environ.get("WRITE_INTERVAL_SECONDS", "5"))
+    CHUNK = int(os.environ.get("CHUNK_BYTES", str(256 * 1024)))
+    CAP = int(os.environ.get("BULK_CAP_BYTES", str(200 * 1024 * 1024)))
+
+    BOOTS = os.path.join(DATA, "boots.txt")
+    LEDGER = os.path.join(DATA, "ledger.log")
+    BULK = os.path.join(DATA, "bulk.dat")
+
+    POD = os.environ.get("HOSTNAME", "unknown")
+    NODE = os.environ.get("NODE_NAME", "unknown")
+
+    # Latency buckets in seconds. Local disk writes are fast, so the useful
+    # resolution is at the bottom of the range; anything above 1s means the
+    # node's disk is in trouble.
+    BUCKETS = [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5]
+
+    _lock = threading.Lock()
+    _state = {
+        "writes_total": 0,
+        "write_errors_total": 0,
+        "bytes_written_total": 0,
+        "duration_sum": 0.0,
+        "duration_count": 0,
+        "buckets": [0] * len(BUCKETS),
+        "last_write_ts": 0.0,
+        "boots": 0,
+        "bulk_capped": 0,
+    }
+
+
+    def observe(duration, written, failed=False):
+        with _lock:
+            _state["writes_total"] += 1
+            if failed:
+                _state["write_errors_total"] += 1
+                return
+            _state["bytes_written_total"] += written
+            _state["duration_sum"] += duration
+            _state["duration_count"] += 1
+            _state["last_write_ts"] = time.time()
+            # Count ONLY the narrowest bucket this observation falls into.
+            # render() turns these into the cumulative counts Prometheus wants.
+            # Without the break, storage would already be cumulative and
+            # render() would cumulate a second time, producing buckets that
+            # exceed _count and decrease at +Inf. histogram_quantile() gives no
+            # error on that -- it just returns badly wrong numbers.
+            for i, edge in enumerate(BUCKETS):
+                if duration <= edge:
+                    _state["buckets"][i] += 1
+                    break
+
+
+    def record_boot():
+        stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with open(BOOTS, "a") as fh:
+            fh.write(f"boot {stamp} pod={POD} node={NODE}\n")
+        with open(BOOTS) as fh:
+            history = fh.read().rstrip("\n").split("\n")
+        print("=== boot history on this volume ===", flush=True)
+        for line in history:
+            print(line, flush=True)
+        print(f"=== boots recorded: {len(history)} ===", flush=True)
+        with _lock:
+            _state["boots"] = len(history)
+
+
+    def writer_loop():
+        while True:
+            started = time.monotonic()
+            try:
+                stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                written = 0
+
+                with open(LEDGER, "a") as fh:
+                    line = f"{stamp} pod={POD}\n"
+                    fh.write(line)
+                    written += len(line)
+
+                # Grow bulk.dat until the cap. Uncapped it would sail past the
+                # PVC's 1Gi request -- hostpath enforces no quota -- and keep
+                # eating the node's disk until every volume on it fails.
+                size = os.path.getsize(BULK) if os.path.exists(BULK) else 0
+                if size < CAP:
+                    with open(BULK, "ab") as fh:
+                        fh.write(b"\0" * CHUNK)
+                    written += CHUNK
+                else:
+                    with _lock:
+                        _state["bulk_capped"] = 1
+
+                observe(time.monotonic() - started, written)
+            except OSError as exc:
+                # ENOSPC is the realistic failure here, and it is exactly the
+                # condition worth surfacing as a metric rather than a crash.
+                print(f"write failed: {exc}", flush=True)
+                observe(time.monotonic() - started, 0, failed=True)
+
+            time.sleep(INTERVAL)
+
+
+    def file_size(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+
+    def render():
+        with _lock:
+            s = dict(_state)
+            buckets = list(_state["buckets"])
+
+        out = [
+            "# HELP ledger_build_info Static labels describing this instance.",
+            "# TYPE ledger_build_info gauge",
+            f'ledger_build_info{{pod="{POD}",node="{NODE}"}} 1',
+
+            "# HELP ledger_writes_total Write cycles attempted.",
+            "# TYPE ledger_writes_total counter",
+            f'ledger_writes_total {s["writes_total"]}',
+
+            "# HELP ledger_write_errors_total Write cycles that failed.",
+            "# TYPE ledger_write_errors_total counter",
+            f'ledger_write_errors_total {s["write_errors_total"]}',
+
+            "# HELP ledger_bytes_written_total Bytes written to the volume.",
+            "# TYPE ledger_bytes_written_total counter",
+            f'ledger_bytes_written_total {s["bytes_written_total"]}',
+
+            "# HELP ledger_write_duration_seconds Duration of one write cycle.",
+            "# TYPE ledger_write_duration_seconds histogram",
+        ]
+
+        # Prometheus histogram buckets are cumulative: each le= line counts
+        # every observation at or below that edge, not just the ones in between.
+        running = 0
+        for edge, count in zip(BUCKETS, buckets):
+            running += count
+            out.append(f'ledger_write_duration_seconds_bucket{{le="{edge}"}} {running}')
+        out += [
+            f'ledger_write_duration_seconds_bucket{{le="+Inf"}} {s["duration_count"]}',
+            f'ledger_write_duration_seconds_sum {s["duration_sum"]:.6f}',
+            f'ledger_write_duration_seconds_count {s["duration_count"]}',
+
+            "# HELP ledger_boots_total Container starts recorded on this volume.",
+            "# TYPE ledger_boots_total gauge",
+            f'ledger_boots_total {s["boots"]}',
+
+            "# HELP ledger_last_write_timestamp_seconds Unix time of the last successful write.",
+            "# TYPE ledger_last_write_timestamp_seconds gauge",
+            f'ledger_last_write_timestamp_seconds {s["last_write_ts"]:.3f}',
+
+            "# HELP ledger_bulk_capped Whether bulk.dat has reached its size cap.",
+            "# TYPE ledger_bulk_capped gauge",
+            f'ledger_bulk_capped {s["bulk_capped"]}',
+
+            "# HELP ledger_file_size_bytes Size of each file on the volume.",
+            "# TYPE ledger_file_size_bytes gauge",
+            f'ledger_file_size_bytes{{file="boots.txt"}} {file_size(BOOTS)}',
+            f'ledger_file_size_bytes{{file="ledger.log"}} {file_size(LEDGER)}',
+            f'ledger_file_size_bytes{{file="bulk.dat"}} {file_size(BULK)}',
+        ]
+        return "\n".join(out) + "\n"
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/metrics"):
+                body = render().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path in ("/", "/healthz"):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok\n")
+            else:
+                self.send_error(404)
+
+        def log_message(self, *_args):
+            pass
+
+
+    if __name__ == "__main__":
+        os.makedirs(DATA, exist_ok=True)
+        # Touch bulk.dat up front so the first size check has a file to stat.
+        open(BULK, "ab").close()
+        record_boot()
+        threading.Thread(target=writer_loop, daemon=True).start()
+        print(f"metrics on :{PORT}/metrics", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger
+  namespace: storage-demo
+  labels:
+    app: ledger
+spec:
+  clusterIP: None
+  selector:
+    app: ledger
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ledger
+  namespace: storage-demo
+  labels:
+    app: ledger
+spec:
+  selector:
+    matchLabels:
+      app: ledger
+  namespaceSelector:
+    matchNames:
+      - storage-demo
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ledger
+  namespace: storage-demo
+spec:
+  serviceName: ledger
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ledger
+  template:
+    metadata:
+      labels:
+        app: ledger
+    spec:
+      containers:
+        - name: writer
+          image: python:3.12-alpine
+          command: ["python3", "/app/app.py"]
+          ports:
+            - name: metrics
+              containerPort: 8080
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: app
+              mountPath: /app
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+      volumes:
+        - name: app
+          configMap:
+            name: ledger-app
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: openebs-hostpath
+        resources:
+          requests:
+            storage: 1Gi

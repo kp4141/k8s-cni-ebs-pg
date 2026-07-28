@@ -1,0 +1,49 @@
+# Calico configuration, applied after the Tigera operator is running.
+#
+# The operator watches for this Installation resource and builds the CNI from
+# it. Nothing happens to the cluster until this is applied.
+
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+      - name: default-ipv4-ippool
+        # MUST equal networking.podSubnet in cluster/kind-config.yaml.
+        cidr: 10.244.0.0/16
+        # /26 gives 64 addresses per node block, plenty for a 3-node lab and
+        # small enough that a single node cannot monopolise the pool.
+        blockSize: 26
+        # kind puts every node on one Docker bridge, so all nodes are on the
+        # same subnet and CrossSubnet means traffic is routed natively with no
+        # encapsulation overhead. If cross-node pod traffic fails to pass, the
+        # fallback is plain `VXLAN`, which encapsulates unconditionally and
+        # stops depending on the bridge forwarding pod-CIDR packets.
+        # See docs/08 §"Cross-node pod traffic times out".
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+
+    # Default autodetection is "first found", which on a kind node can latch
+    # onto a Docker-managed interface rather than the one carrying node
+    # traffic. Pinning to the address Kubernetes already recorded for the node
+    # removes the guesswork.
+    #
+    # The field is `kubernetes: NodeInternalIP`. It is NOT
+    # `kubernetesInternalIP`, which several older write-ups use and which the
+    # API rejects outright with a strict-decoding error.
+    # See docs/08 §"unknown field nodeAddressAutodetectionV4".
+    nodeAddressAutodetectionV4:
+      kubernetes: NodeInternalIP
+
+---
+# Installs the projectcalico.org API group, which is what makes
+# `kubectl get ippools`, `kubectl get felixconfiguration` and friends work.
+# Without it those objects are only reachable through calicoctl.
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}

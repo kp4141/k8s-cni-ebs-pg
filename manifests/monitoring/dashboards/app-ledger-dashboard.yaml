@@ -1,0 +1,277 @@
+# Application metrics dashboard for the `ledger` demo workload.
+#
+# Everything here comes from metrics the application publishes about ITSELF --
+# ledger_* series scraped from its own /metrics endpoint.
+#
+# That is a different category from the infrastructure dashboards. cAdvisor can
+# tell you this pod used 12m of CPU; kube-state-metrics can tell you it restarted
+# twice. Neither can tell you a write took 40ms, that 3 writes failed with
+# ENOSPC, or how many bytes the application believes it has written. Only the
+# application knows that, and only if it is instrumented.
+#
+# Source: the ConfigMap in manifests/workload/ledger-statefulset.yaml.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-ledger-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Applications"
+data:
+  app-ledger.json: |
+    {
+      "uid": "app-ledger",
+      "title": "Application - ledger",
+      "description": "Application-level metrics published by the ledger workload: write throughput, latency distribution, errors and on-volume file growth.",
+      "tags": ["application", "ledger", "lab"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {},
+            "hide": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Write rate",
+          "description": "Successful write cycles per second, from the application's own counter.",
+          "id": 1,
+          "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(ledger_writes_total[5m]))", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "area" },
+          "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] }
+        },
+        {
+          "type": "stat",
+          "title": "Bytes written",
+          "description": "Cumulative, as counted by the application.",
+          "id": 2,
+          "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(ledger_bytes_written_total)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "area" },
+          "fieldConfig": { "defaults": { "unit": "bytes", "decimals": 1 }, "overrides": [] }
+        },
+        {
+          "type": "stat",
+          "title": "Write errors",
+          "description": "Failed write cycles. On hostpath the realistic cause is ENOSPC from the node's disk filling.",
+          "id": 3,
+          "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(ledger_write_errors_total)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "value", "graphMode": "none" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short", "decimals": 0,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "red", "value": 1 }
+              ]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Boots on this volume",
+          "description": "Container starts recorded in boots.txt. Greater than 1 means the volume outlived a pod -- the persistence proof, as a metric.",
+          "id": 4,
+          "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(ledger_boots_total)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "none" },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
+        },
+        {
+          "type": "stat",
+          "title": "Last write",
+          "description": "Seconds since the last successful write. Climbing steadily means the writer thread has stalled.",
+          "id": 5,
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "time() - max(ledger_last_write_timestamp_seconds)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "value", "graphMode": "none" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s", "decimals": 0,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "#EAB839", "value": 30 },
+                { "color": "red", "value": 120 }
+              ]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Write throughput",
+          "description": "Write cycles per second and byte rate. The workload writes on a 5s interval, so ~0.2/s is nominal.",
+          "id": 6,
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(ledger_writes_total[5m]))", "legendFormat": "writes/sec" },
+            { "refId": "B", "expr": "sum(rate(ledger_write_errors_total[5m]))", "legendFormat": "errors/sec" }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "errors/sec" },
+                "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+              }
+            ]
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Write latency percentiles",
+          "description": "Derived from the application's histogram. p99 rising while p50 stays flat points at contention on the node's disk rather than a general slowdown.",
+          "id": 7,
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(ledger_write_duration_seconds_bucket[5m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.90, sum by (le) (rate(ledger_write_duration_seconds_bucket[5m])))",
+              "legendFormat": "p90"
+            },
+            {
+              "refId": "C",
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(ledger_write_duration_seconds_bucket[5m])))",
+              "legendFormat": "p99"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s", "min": 0, "decimals": 4,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Byte throughput",
+          "description": "Bytes per second the application reports writing. Should sit near 256 KiB / 5s once bulk.dat is growing.",
+          "id": 8,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(rate(ledger_bytes_written_total[5m]))", "legendFormat": "bytes/sec" }
+          ],
+          "options": {
+            "tooltip": { "mode": "single" },
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": false }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "File sizes on the volume",
+          "description": "As the application sees them. bulk.dat climbs until it hits its 200 MiB cap; boots.txt and ledger.log grow slowly forever.",
+          "id": 9,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "ledger_file_size_bytes", "legendFormat": "{{file}}" }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Application vs infrastructure view of the same volume",
+          "description": "The app's own byte count against the on-disk size measured by the hostpath exporter. They should track together; a growing gap means the app's accounting has drifted from reality.",
+          "id": 10,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 21 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(ledger_file_size_bytes)",
+              "legendFormat": "app: sum of file sizes"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(openebs:volume_used_bytes{namespace=\"storage-demo\"})",
+              "legendFormat": "infra: bytes allocated on disk"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 6, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

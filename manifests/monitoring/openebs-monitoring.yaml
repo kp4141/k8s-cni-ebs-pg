@@ -1,0 +1,141 @@
+# OpenEBS observability wiring: recording rules and alerts.
+#
+# WHAT IS DELIBERATELY NOT HERE: any rule built on kubelet_volume_stats_*.
+#
+# Those are the metrics every "monitor your PVCs" guide reaches for, and for
+# LocalPV Hostpath they are wrong. A hostpath volume is a directory on the
+# node's shared filesystem, so the kubelet reports that filesystem's numbers for
+# every volume on the node. Measured here, a 1Gi, a 2Gi and an 8Gi PVC all
+# reported capacity=58.76 GiB and used=8.3 GiB -- identical, and equal to
+# `df /var` on the node. Graphing that produces four flat, identical lines.
+#
+# Instead:
+#   openebs_hostpath_volume_used_bytes  our DaemonSet exporter, which measures
+#                                       each PV directory directly.
+#   kube_persistentvolume_claim_ref     PV -> owning PVC, from kube-state-metrics.
+#   ..._resource_requests_storage_bytes what the PVC actually asked for.
+#
+# See docs/07 for the full derivation.
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: openebs-storage
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: openebs-lab
+spec:
+  groups:
+    - name: openebs.volume
+      interval: 30s
+      rules:
+        # The exporter knows PV names but nothing about PVCs. kube-state-metrics
+        # knows the mapping. Join on persistentvolume, then rename the resulting
+        # claim_namespace/name labels to the namespace/persistentvolumeclaim
+        # spelling every other Kubernetes metric uses, so this series joins
+        # cleanly with the rest of the metric namespace.
+        - record: openebs:volume_used_bytes
+          expr: |
+            label_replace(
+              label_replace(
+                openebs_hostpath_volume_used_bytes
+                  * on (persistentvolume) group_left (claim_namespace, name)
+                    kube_persistentvolume_claim_ref,
+                "namespace", "$1", "claim_namespace", "(.*)"
+              ),
+              "persistentvolumeclaim", "$1", "name", "(.*)"
+            )
+
+        # What the PVC asked for, restricted to OpenEBS storage classes.
+        - record: openebs:volume_requested_bytes
+          expr: |
+            kube_persistentvolumeclaim_resource_requests_storage_bytes
+              * on (namespace, persistentvolumeclaim) group_left (storageclass)
+                kube_persistentvolumeclaim_info{storageclass=~"openebs-.*"}
+
+        # Fraction of the requested size actually consumed. This CAN exceed 1.0:
+        # hostpath applies no quota, so a volume is free to grow past its own
+        # request until the node's disk runs out. That is the point of measuring it.
+        - record: openebs:volume_used_ratio
+          expr: |
+            openebs:volume_used_bytes
+              / on (namespace, persistentvolumeclaim)
+                openebs:volume_requested_bytes
+
+    - name: openebs.node
+      interval: 30s
+      rules:
+        # The real capacity limit for every hostpath volume on a node. When this
+        # fills, every volume on that node fails at once regardless of its
+        # individual request.
+        - record: openebs:node_backing_fs_used_ratio
+          expr: |
+            1 - (
+              node_filesystem_avail_bytes{mountpoint="/var", fstype!~"tmpfs|overlay"}
+              / node_filesystem_size_bytes{mountpoint="/var", fstype!~"tmpfs|overlay"}
+            )
+
+    - name: openebs.alerts
+      rules:
+        - alert: OpenEBSVolumeExceededRequest
+          expr: openebs:volume_used_ratio > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}
+              has grown past its requested size
+            description: >-
+              LocalPV Hostpath enforces no quota, so a volume can exceed its own
+              request and keep consuming the node's disk. Nothing will stop it
+              until the backing filesystem is full, at which point every volume
+              on that node fails together.
+
+        - alert: OpenEBSVolumeNearRequest
+          expr: openebs:volume_used_ratio > 0.85 and openebs:volume_used_ratio <= 1
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}
+              is at {{ $value | humanizePercentage }} of its request
+
+        - alert: OpenEBSNodeBackingFilesystemFilling
+          expr: openebs:node_backing_fs_used_ratio > 0.85
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.instance }} backing filesystem is {{ $value | humanizePercentage }} full"
+            description: >-
+              /var backs every LocalPV Hostpath volume on this node. Exhausting
+              it takes out all of them simultaneously, and the kubelet will begin
+              evicting pods for disk pressure.
+
+        - alert: OpenEBSPVCPending
+          expr: |
+            kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: >-
+              PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}
+              has been Pending for 10 minutes
+            description: >-
+              With WaitForFirstConsumer a brief Pending is normal -- the volume
+              is not provisioned until a pod mounts it. Ten minutes means no pod
+              ever scheduled, so check the consuming pod's scheduling events.
+
+        - alert: OpenEBSHostpathExporterDown
+          expr: up{job="openebs-hostpath-exporter"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Hostpath usage exporter down on {{ $labels.instance }}"
+            description: >-
+              Per-volume usage figures for this node are stale. Note that the
+              volumes themselves are unaffected; only the measurement is.

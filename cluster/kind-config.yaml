@@ -1,0 +1,80 @@
+# kind cluster topology for the CNI / storage / observability lab.
+#
+# Two decisions here are deliberate and drive the rest of the lab:
+#
+#   disableDefaultCNI: true
+#     kind normally ships kindnetd and the cluster comes up Ready with no
+#     effort. We turn that off so the nodes stay NotReady until Calico is
+#     installed by hand. That makes the CNI install an observable event with a
+#     real before/after, which is the entire point of docs/03.
+#
+#   podSubnet: 10.244.0.0/16
+#     Calico's stock manifest uses 192.168.0.0/16, which overlaps the address
+#     range most home and office routers hand out. On a laptop that overlap
+#     produces intermittent, hard-to-diagnose breakage. We pin the pod CIDR
+#     here and match it in cluster/calico-installation.yaml.
+#
+# Both subnets must stay in sync with the Calico IPPool. See docs/08 §"Pod CIDR
+# mismatch" for what it looks like when they drift apart.
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: k8s-cni-lab
+
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: iptables
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/16"
+
+# Expose control-plane metrics endpoints.
+#
+# By default kubeadm binds kube-controller-manager, kube-scheduler and etcd
+# metrics to 127.0.0.1, and kube-proxy to 127.0.0.1:10249. Prometheus runs in a
+# pod on the network, so it cannot reach any of them -- kube-prometheus-stack
+# ships ServiceMonitors for all four and they sit permanently "down" with
+# connection-refused. That is the single most common "why is my kind monitoring
+# broken" complaint, and it is a cluster-creation-time fix: these addresses
+# cannot be changed later without editing static pod manifests on the node.
+#
+# extraArgs is a LIST of name/value pairs here, not a map. kubeadm switched to
+# v1beta4 in Kubernetes 1.31 and the old map form is silently ignored, which
+# looks exactly like the patch not working at all.
+# See docs/08 §"Control-plane targets down in Prometheus".
+kubeadmConfigPatches:
+  - |
+    apiVersion: kubeadm.k8s.io/v1beta4
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        - name: bind-address
+          value: "0.0.0.0"
+    scheduler:
+      extraArgs:
+        - name: bind-address
+          value: "0.0.0.0"
+    etcd:
+      local:
+        extraArgs:
+          - name: listen-metrics-urls
+            value: "http://0.0.0.0:2381"
+  - |
+    apiVersion: kubeproxy.config.k8s.io/v1alpha1
+    kind: KubeProxyConfiguration
+    metricsBindAddress: "0.0.0.0"
+
+nodes:
+  - role: control-plane
+    # NodePort escape hatches so Prometheus and Grafana are reachable from
+    # macOS without holding a kubectl port-forward open. The path is
+    # kind node -> Colima VM -> macOS, and Colima forwards published container
+    # ports to the host automatically.
+    extraPortMappings:
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
+      - containerPort: 30030
+        hostPort: 30030
+        protocol: TCP
+  - role: worker
+  - role: worker

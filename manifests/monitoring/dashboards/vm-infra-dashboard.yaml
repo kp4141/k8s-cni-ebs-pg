@@ -1,0 +1,389 @@
+# Infrastructure dashboard: the Colima VM, and the kind nodes running on it.
+#
+# THE AGGREGATION TRAP THIS DASHBOARD AVOIDS
+#
+# kind "nodes" are containers sharing the Colima VM's single Linux kernel. Every
+# node-exporter instance therefore reports the SAME underlying hardware:
+#
+#   instance 172.18.0.2:9100   MemTotal 7.74 GiB   CPUs 4   boot_time 1785204879
+#   instance 172.18.0.3:9100   MemTotal 7.74 GiB   CPUs 4   boot_time 1785204879
+#   instance 172.18.0.4:9100   MemTotal 7.74 GiB   CPUs 4   boot_time 1785204879
+#
+# Identical boot_time is the giveaway: one kernel, three views of it.
+#
+# So `sum(node_memory_MemTotal_bytes)` returns ~23 GiB for a 7.74 GiB VM, and
+# `sum` of CPU cores returns 12 for 4. The stock kube-prometheus-stack node
+# dashboards do exactly that and are wrong on kind for this reason.
+#
+# Rule applied throughout the VM section below: aggregate shared-kernel metrics
+# with max() or avg(), never sum(). Only genuinely per-node facts -- pod counts,
+# per-node network namespaces, volume directories -- are broken out by node.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vm-infra-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Infrastructure"
+data:
+  vm-infra.json: |
+    {
+      "uid": "vm-infra",
+      "title": "Infrastructure - Colima VM and kind nodes",
+      "description": "Host VM resources plus per-node Kubernetes load. Shared-kernel metrics are aggregated with max/avg, never sum -- see the ConfigMap header.",
+      "tags": ["infrastructure", "vm", "nodes", "lab"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {},
+            "hide": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "row",
+          "title": "Colima VM (one kernel, shared by all kind nodes)",
+          "id": 100,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "stat",
+          "title": "vCPUs",
+          "description": "max(), not sum() -- every kind node reports the same 4 VM cores.",
+          "id": 1,
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(count by (instance) (node_cpu_seconds_total{mode=\"idle\"}))", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "none" },
+          "fieldConfig": { "defaults": { "unit": "short", "decimals": 0 }, "overrides": [] }
+        },
+        {
+          "type": "stat",
+          "title": "Total RAM",
+          "id": 2,
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(node_memory_MemTotal_bytes)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "none" },
+          "fieldConfig": { "defaults": { "unit": "bytes", "decimals": 2 }, "overrides": [] }
+        },
+        {
+          "type": "stat",
+          "title": "CPU in use",
+          "id": 3,
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "value", "graphMode": "area" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "decimals": 1, "min": 0, "max": 1,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "#EAB839", "value": 0.75 },
+                { "color": "red", "value": 0.9 }
+              ]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Memory in use",
+          "id": 4,
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "1 - (max(node_memory_MemAvailable_bytes) / max(node_memory_MemTotal_bytes))", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "value", "graphMode": "area" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "decimals": 1, "min": 0, "max": 1,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "#EAB839", "value": 0.8 },
+                { "color": "red", "value": 0.92 }
+              ]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Disk in use (/var)",
+          "description": "Backs every OpenEBS hostpath volume. Filling this takes out all volumes at once.",
+          "id": 5,
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(openebs:node_backing_fs_used_ratio)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "value", "graphMode": "area" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "decimals": 1, "min": 0, "max": 1,
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "#EAB839", "value": 0.75 },
+                { "color": "red", "value": 0.85 }
+              ]}
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "VM uptime",
+          "id": 6,
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "time() - max(node_boot_time_seconds)", "instant": true }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value", "colorMode": "none", "graphMode": "none" },
+          "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] }
+        },
+        {
+          "type": "timeseries",
+          "title": "VM CPU by mode",
+          "description": "avg() across instances, because all instances describe the same cores. Sums to roughly 1.0 (100% of the VM).",
+          "id": 7,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]))",
+              "legendFormat": "{{mode}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull", "max"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20, "showPoints": "never", "stacking": { "mode": "normal" } }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "VM memory",
+          "description": "Total, available and used. max() across instances.",
+          "id": 8,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(node_memory_MemTotal_bytes)", "legendFormat": "total" },
+            { "refId": "B", "expr": "max(node_memory_MemTotal_bytes) - max(node_memory_MemAvailable_bytes)", "legendFormat": "used" },
+            { "refId": "C", "expr": "max(node_memory_MemAvailable_bytes)", "legendFormat": "available" }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "VM disk space (/var)",
+          "description": "The filesystem behind every hostpath volume.",
+          "id": 9,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(node_filesystem_size_bytes{mountpoint=\"/var\",fstype!~\"tmpfs|overlay\"})", "legendFormat": "size" },
+            { "refId": "B", "expr": "max(node_filesystem_avail_bytes{mountpoint=\"/var\",fstype!~\"tmpfs|overlay\"})", "legendFormat": "available" }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "VM disk I/O",
+          "description": "Read and write throughput on the VM's block device.",
+          "id": 10,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(rate(node_disk_read_bytes_total{device!~\"loop.*\"}[5m]))", "legendFormat": "read" },
+            { "refId": "B", "expr": "max(rate(node_disk_written_bytes_total{device!~\"loop.*\"}[5m]))", "legendFormat": "written" }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "row",
+          "title": "Per kind node (genuinely distinct per node)",
+          "id": 200,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+          "collapsed": false,
+          "panels": []
+        },
+        {
+          "type": "timeseries",
+          "title": "Pods running per node",
+          "description": "Real scheduling load. Unlike CPU and memory, this genuinely differs between kind nodes.",
+          "id": 11,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "count by (node) (kube_pod_info{node!=\"\"})",
+              "legendFormat": "{{node}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short", "min": 0, "decimals": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "auto", "pointSize": 7 }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Network throughput per node",
+          "description": "Each kind node has its own network namespace, so this really is per-node.",
+          "id": 12,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (instance) (rate(node_network_receive_bytes_total{device=\"eth0\"}[5m]))",
+              "legendFormat": "{{instance}} rx"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (instance) (rate(node_network_transmit_bytes_total{device=\"eth0\"}[5m]))",
+              "legendFormat": "{{instance}} tx"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Top pods by CPU",
+          "description": "cAdvisor, per container. This is the infrastructure's view of workloads.",
+          "id": 13,
+          "gridPos": { "h": 9, "w": 12, "x": 0, "y": 30 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "topk(8, sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{container!=\"\",pod!=\"\"}[5m])))",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short", "min": 0, "decimals": 3,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Top pods by memory",
+          "id": 14,
+          "gridPos": { "h": 9, "w": 12, "x": 12, "y": 30 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "topk(8, sum by (namespace, pod) (container_memory_working_set_bytes{container!=\"\",pod!=\"\"}))",
+              "legendFormat": "{{namespace}}/{{pod}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true, "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

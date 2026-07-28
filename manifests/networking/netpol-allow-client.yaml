@@ -1,0 +1,25 @@
+# Phase 2: punch a hole in the deny-all for client pods only.
+#
+# Applied on top of default-deny-ingress. NetworkPolicies are additive --
+# a connection is allowed if ANY policy selecting the pod permits it -- so this
+# does not replace the deny, it carves an exception out of it.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-client-to-web
+  namespace: net-test
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: client
+      ports:
+        - protocol: TCP
+          port: 80

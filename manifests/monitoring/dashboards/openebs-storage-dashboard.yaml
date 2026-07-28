@@ -1,0 +1,345 @@
+# Grafana dashboard for OpenEBS LocalPV Hostpath volumes.
+#
+# Delivered as a ConfigMap rather than through the Grafana API: the
+# kube-prometheus-stack sidecar imports any ConfigMap labelled
+# grafana_dashboard="1" from any namespace. That keeps the dashboard in git and
+# survives a Grafana pod restart.
+#
+# Every panel is driven by the openebs:* recording rules in
+# manifests/monitoring/openebs-monitoring.yaml, which are in turn built on the
+# hostpath exporter -- NOT on kubelet_volume_stats_*, which reports node
+# filesystem figures for every hostpath volume. See that file's header.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openebs-storage-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "OpenEBS"
+data:
+  openebs-storage.json: |
+    {
+      "uid": "openebs-storage",
+      "title": "OpenEBS - LocalPV Hostpath Storage",
+      "description": "Real per-volume consumption for OpenEBS LocalPV Hostpath, measured by directory rather than by kubelet volume stats.",
+      "tags": ["openebs", "storage", "lab"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "datasource",
+            "label": "Data source",
+            "type": "datasource",
+            "query": "prometheus",
+            "current": {},
+            "hide": 0
+          },
+          {
+            "name": "pvc",
+            "label": "Volume",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "${datasource}" },
+            "query": "label_values(openebs:volume_used_bytes, persistentvolumeclaim)",
+            "refresh": 2,
+            "multi": true,
+            "includeAll": true,
+            "current": { "text": "All", "value": "$__all" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "OpenEBS volumes",
+          "description": "PVCs bound to an openebs-* StorageClass.",
+          "id": 1,
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "count(openebs:volume_requested_bytes)", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "textMode": "value", "colorMode": "none", "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "decimals": 0 }, "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Requested capacity",
+          "description": "Sum of what the PVCs asked for. Advisory only -- hostpath enforces no quota.",
+          "id": 2,
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(openebs:volume_requested_bytes)", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "textMode": "value", "colorMode": "none", "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "bytes", "decimals": 1 }, "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Actually consumed",
+          "description": "Bytes on disk across all OpenEBS volume directories, measured by the hostpath exporter.",
+          "id": 3,
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "sum(openebs:volume_used_bytes)", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "textMode": "value", "colorMode": "none", "graphMode": "area"
+          },
+          "fieldConfig": {
+            "defaults": { "unit": "bytes", "decimals": 1 }, "overrides": []
+          }
+        },
+        {
+          "type": "stat",
+          "title": "Closest to its request",
+          "description": "Highest used/requested ratio. Above 100% means a volume has overrun its request, which hostpath permits.",
+          "id": 4,
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "A", "expr": "max(openebs:volume_used_ratio)", "instant": true }
+          ],
+          "options": {
+            "reduceOptions": { "calcs": ["lastNotNull"] },
+            "textMode": "value", "colorMode": "value", "graphMode": "none"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "decimals": 1, "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "#EAB839", "value": 0.85 },
+                  { "color": "red", "value": 1.0 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Volume consumption over time",
+          "description": "Bytes on disk per volume. The demo workload appends 256 KiB every 5s, so storage-demo/data-ledger-0 should climb steadily until it caps at 200 MiB.",
+          "id": 5,
+          "gridPos": { "h": 9, "w": 16, "x": 0, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "openebs:volume_used_bytes{persistentvolumeclaim=~\"$pvc\"}",
+              "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": {
+              "displayMode": "table", "placement": "bottom", "showLegend": true,
+              "calcs": ["lastNotNull", "max"]
+            }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes", "min": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8,
+                "showPoints": "never", "spanNulls": false, "axisSoftMin": 0
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "bargauge",
+          "title": "Consumed vs requested",
+          "description": "How much of each volume's requested size is in use. The scale runs past 100% because nothing prevents an overrun.",
+          "id": 6,
+          "gridPos": { "h": 9, "w": 8, "x": 16, "y": 4 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "openebs:volume_used_ratio{persistentvolumeclaim=~\"$pvc\"}",
+              "legendFormat": "{{persistentvolumeclaim}}",
+              "instant": true
+            }
+          ],
+          "options": {
+            "displayMode": "gradient", "orientation": "horizontal",
+            "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"] }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0, "max": 1.2, "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "#EAB839", "value": 0.85 },
+                  { "color": "red", "value": 1.0 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "table",
+          "title": "Volume inventory",
+          "description": "One row per OpenEBS volume: what it asked for, what it is using, and the ratio.",
+          "id": 7,
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            { "refId": "requested", "expr": "openebs:volume_requested_bytes", "instant": true, "format": "table" },
+            { "refId": "used", "expr": "openebs:volume_used_bytes", "instant": true, "format": "table" },
+            { "refId": "ratio", "expr": "openebs:volume_used_ratio", "instant": true, "format": "table" }
+          ],
+          "transformations": [
+            { "id": "merge", "options": {} },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true, "__name__": true, "endpoint": true,
+                  "instance": true, "job": true, "service": true,
+                  "container": true, "pod": true, "uid": true
+                },
+                "renameByName": {
+                  "namespace": "Namespace",
+                  "persistentvolumeclaim": "PVC",
+                  "storageclass": "StorageClass",
+                  "persistentvolume": "PV",
+                  "node": "Node",
+                  "Value #requested": "Requested",
+                  "Value #used": "Used",
+                  "Value #ratio": "Used / Requested"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "short" },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "Requested" },
+                "properties": [{ "id": "unit", "value": "bytes" }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Used" },
+                "properties": [{ "id": "unit", "value": "bytes" }]
+              },
+              {
+                "matcher": { "id": "byName", "options": "Used / Requested" },
+                "properties": [
+                  { "id": "unit", "value": "percentunit" },
+                  { "id": "decimals", "value": 1 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        { "color": "green", "value": null },
+                        { "color": "#EAB839", "value": 0.85 },
+                        { "color": "red", "value": 1.0 }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Node backing filesystem utilisation",
+          "description": "/var on each node holds every hostpath volume on it. This is the real capacity ceiling -- when it fills, all volumes on that node fail together and the kubelet starts evicting for disk pressure.",
+          "id": 8,
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "openebs:node_backing_fs_used_ratio",
+              "legendFormat": "{{instance}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit", "min": 0, "max": 1,
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8,
+                "showPoints": "never",
+                "thresholdsStyle": { "mode": "line" }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 0.85 }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Volumes per node",
+          "description": "How many hostpath volume directories each node is hosting. Uneven distribution concentrates disk risk on one node.",
+          "id": 9,
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "openebs_hostpath_volumes",
+              "legendFormat": "{{node}}"
+            }
+          ],
+          "options": {
+            "tooltip": { "mode": "multi", "sort": "desc" },
+            "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short", "min": 0, "decimals": 0,
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0,
+                "showPoints": "auto", "pointSize": 8
+              }
+            },
+            "overrides": []
+          }
+        }
+      ]
+    }

@@ -1,0 +1,223 @@
+# Per-volume usage exporter for OpenEBS LocalPV Hostpath.
+#
+# WHY THIS EXISTS
+#
+# kubelet_volume_stats_* is the usual source for PVC usage, and for a real
+# block-backed volume it is correct. For LocalPV Hostpath it is actively
+# misleading: a hostpath volume is a plain directory on the node's shared
+# filesystem, so the kubelet reports the *node filesystem's* capacity and usage
+# for every volume on that node. Measured on this lab:
+#
+#   PVC                    requested   kubelet_volume_stats_capacity_bytes
+#   data-ledger-0                1Gi                            58.76 GiB
+#   kps-grafana                  2Gi                            58.76 GiB
+#   prometheus-...-db            8Gi                            58.76 GiB
+#
+# Identical for all three, and equal to `df /var` on the node. A "percent full"
+# panel built on that shows the same number for every volume and tells you
+# nothing about any of them.
+#
+# This DaemonSet measures each PV directory directly, giving genuine per-volume
+# consumption. Combined with kube_persistentvolumeclaim_resource_requests_storage_bytes
+# it also yields the ratio that hostpath does not enforce but operators still
+# need: how much of its requested quota a volume has actually used.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openebs-hostpath-exporter
+  namespace: monitoring
+data:
+  exporter.py: |
+    """Expose per-directory disk usage for LocalPV Hostpath volumes."""
+    import os
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    BASE = os.environ.get("HOSTPATH_BASE", "/hostpath")
+    NODE = os.environ.get("NODE_NAME", "unknown")
+    PORT = int(os.environ.get("PORT", "9101"))
+
+
+    def dir_usage(path):
+        """Bytes actually allocated on disk, counting blocks like du(1).
+
+        st_size would over-report sparse files and under-report the block
+        rounding that genuinely consumes the filesystem.
+        """
+        total = 0
+        for root, _dirs, files in os.walk(path, onerror=lambda _e: None):
+            for name in files:
+                try:
+                    total += os.lstat(os.path.join(root, name)).st_blocks * 512
+                except OSError:
+                    pass  # file vanished mid-walk; skip it
+        return total
+
+
+    def collect():
+        started = time.monotonic()
+        lines = [
+            "# HELP openebs_hostpath_volume_used_bytes Disk space consumed by a "
+            "LocalPV Hostpath volume directory on this node.",
+            "# TYPE openebs_hostpath_volume_used_bytes gauge",
+        ]
+        count = 0
+        try:
+            entries = sorted(os.scandir(BASE), key=lambda e: e.name)
+        except FileNotFoundError:
+            entries = []
+
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            # Directory names are the PV names, which is the join key back to
+            # kube_persistentvolume_claim_ref.
+            used = dir_usage(entry.path)
+            lines.append(
+                f'openebs_hostpath_volume_used_bytes{{persistentvolume="{entry.name}",'
+                f'node="{NODE}"}} {used}'
+            )
+            count += 1
+
+        lines += [
+            "# HELP openebs_hostpath_volumes Number of hostpath volume "
+            "directories present on this node.",
+            "# TYPE openebs_hostpath_volumes gauge",
+            f'openebs_hostpath_volumes{{node="{NODE}"}} {count}',
+            "# HELP openebs_hostpath_exporter_scrape_duration_seconds Time spent "
+            "walking volume directories.",
+            "# TYPE openebs_hostpath_exporter_scrape_duration_seconds gauge",
+            f'openebs_hostpath_exporter_scrape_duration_seconds{{node="{NODE}"}} '
+            f"{time.monotonic() - started:.6f}",
+        ]
+        return "\n".join(lines) + "\n"
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/metrics"):
+                body = collect().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path in ("/", "/healthz"):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok\n")
+            else:
+                self.send_error(404)
+
+        def log_message(self, *_args):
+            pass  # one line per scrape every 30s is pure noise
+
+
+    if __name__ == "__main__":
+        print(f"serving :{PORT}/metrics for {BASE} on node {NODE}", flush=True)
+        ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: openebs-hostpath-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: openebs-hostpath-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openebs-hostpath-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openebs-hostpath-exporter
+    spec:
+      # Volumes can be provisioned on the control-plane too, so measure there.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: exporter
+          image: python:3.12-alpine
+          command: ["python3", "/app/exporter.py"]
+          ports:
+            - name: metrics
+              containerPort: 9101
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: script
+              mountPath: /app
+            - name: hostpath
+              mountPath: /hostpath
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 96Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+      volumes:
+        - name: script
+          configMap:
+            name: openebs-hostpath-exporter
+        - name: hostpath
+          hostPath:
+            # Where the LocalPV Hostpath provisioner creates volume directories.
+            # Read-only: this component only ever measures.
+            path: /var/openebs/local
+            type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openebs-hostpath-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: openebs-hostpath-exporter
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: openebs-hostpath-exporter
+  ports:
+    - name: metrics
+      port: 9101
+      targetPort: metrics
+
+---
+# This is a genuine scrape target, unlike a ServiceMonitor aimed at the
+# provisioner (which publishes no metrics at all).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: openebs-hostpath-exporter
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: openebs-hostpath-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openebs-hostpath-exporter
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

@@ -1,0 +1,19 @@
+# Phase 1 of the NetworkPolicy check: deny all ingress to web pods.
+#
+# A NetworkPolicy is only paper unless the CNI enforces it. Kubernetes accepts
+# this object happily on a cluster with no policy support at all -- traffic
+# just keeps flowing. So "the policy applied cleanly" proves nothing; the test
+# has to confirm traffic actually stops.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: net-test
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+    - Ingress
+  # No ingress rules at all == deny everything to these pods.

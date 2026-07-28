@@ -1,0 +1,180 @@
+# kube-prometheus-stack overrides.
+#
+# Three themes here:
+#   1. Prometheus and Grafana both store their data on OpenEBS PVCs, so the
+#      monitoring stack is itself a real consumer of the storage layer.
+#   2. Selector "NilUsesHelmValues" flags are turned off so Prometheus adopts
+#      ServiceMonitors we write by hand, not only the chart's own.
+#   3. Resource ceilings sized for a 4 CPU / 8 GB Colima VM.
+
+fullnameOverride: kps
+
+# ---------------------------------------------------------------- Prometheus
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30090
+
+  prometheusSpec:
+    # Short retention: this is a laptop lab, not a production TSDB. retentionSize
+    # is the real guard -- it stops the volume filling regardless of time range.
+    retention: 6h
+    retentionSize: 5GB
+    scrapeInterval: 30s
+    evaluationInterval: 30s
+
+    # By default the operator only adopts monitors carrying the chart's own
+    # release label. Our hand-written ServiceMonitors (OpenEBS, the demo
+    # workload) do not carry it, and would be silently ignored -- the monitor
+    # exists, `kubectl get servicemonitor` shows it, and it simply never
+    # appears in Prometheus. Setting these to false means "select everything".
+    # See docs/08 §"ServiceMonitor exists but no target appears".
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+
+    # Prometheus' own TSDB on OpenEBS. This is the first real PVC the storage
+    # layer has to serve, and it is a genuine stateful workload.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: openebs-hostpath
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 8Gi
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1800Mi
+
+# ------------------------------------------------------------------- Grafana
+grafana:
+  # Lab-only credentials. Fine for a local kind cluster; do not carry this
+  # pattern into anything reachable from a network you do not control.
+  adminUser: admin
+  adminPassword: admin
+
+  service:
+    type: NodePort
+    nodePort: 30030
+
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: openebs-hostpath
+    accessModes: ["ReadWriteOnce"]
+    size: 2Gi
+
+  # The sidecar imports any ConfigMap labelled grafana_dashboard=1. Searching
+  # ALL namespaces means our custom dashboards do not have to live alongside
+  # Grafana itself.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# -------------------------------------------------------------- Alertmanager
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: openebs-hostpath
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+# ------------------------------------------------- Control-plane scrape jobs
+# These only work because cluster/kind-config.yaml rebound each component's
+# metrics listener to 0.0.0.0 at cluster creation. On a stock kind cluster all
+# four of these are permanently down.
+kubeApiServer:
+  enabled: true
+kubeControllerManager:
+  enabled: true
+  service:
+    port: 10257
+    targetPort: 10257
+  serviceMonitor:
+    https: true
+    insecureSkipVerify: true
+kubeScheduler:
+  enabled: true
+  service:
+    port: 10259
+    targetPort: 10259
+  serviceMonitor:
+    https: true
+    insecureSkipVerify: true
+kubeProxy:
+  enabled: true
+  service:
+    port: 10249
+    targetPort: 10249
+kubeEtcd:
+  enabled: true
+  service:
+    port: 2381
+    targetPort: 2381
+  serviceMonitor:
+    scheme: http
+
+kubelet:
+  enabled: true
+  serviceMonitor:
+    cAdvisor: true
+    probes: true
+    resource: true
+    # The chart still defaults this to /metrics/resource/v1alpha1, an endpoint
+    # Kubernetes removed in 1.24. On anything newer the kubelet answers 404 and
+    # the target sits permanently down, while the other three kubelet endpoints
+    # scrape fine -- so metrics keep flowing and the failure is easy to miss.
+    # See docs/08 §"kubelet resource target 404".
+    resourcePath: /metrics/resource
+
+# ---------------------------------------------------------------- Exporters
+nodeExporter:
+  enabled: true
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
