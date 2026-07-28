@@ -14,33 +14,34 @@ make all
 
 ## What it builds
 
-```mermaid
-flowchart TB
-  subgraph mac["macOS host (Apple Silicon)"]
-    venv[".venv — pytest validation harness"]
-    subgraph colima["Colima VM · 4 CPU / 8 GB"]
-      subgraph kind["kind cluster · Kubernetes v1.36"]
-        cp["control-plane"]
-        w1["worker"]
-        w2["worker2"]
-      end
-    end
-  end
-
-  venv -->|kubectl / API| kind
-  venv -->|"NodePort :30090 / :30030"| kind
-
-  cp --- calico["Calico CNI · VXLAN CrossSubnet · 10.244.0.0/16"]
-  w1 --- calico
-  w2 --- calico
-
-  calico --> openebs["OpenEBS LocalPV Hostpath"]
-  openebs --> prom["Prometheus (TSDB on OpenEBS PVC)"]
-  openebs --> graf["Grafana (PVC)"]
-  openebs --> am["Alertmanager (PVC)"]
-  openebs --> demo["ledger StatefulSet (PVC)"]
-  demo --> prom
-  prom --> graf
+```
+  macOS (Apple Silicon)
+  │
+  │  .venv — pytest harness ──── kubectl / API ────┐
+  │                         ──── NodePort 30090/30030 ──┐
+  │                                                 │   │
+  └─ Colima VM · 4 vCPU / 7.74 GiB · one Linux kernel   │
+     │                                              │   │
+     └─ Docker ─ kind cluster · Kubernetes v1.36.1  ◄───┘
+        │
+        ├─ control-plane 172.18.0.3   pods 10.244.40.128/26
+        ├─ worker        172.18.0.2   pods 10.244.247.192/26
+        └─ worker2       172.18.0.4   pods 10.244.67.0/26
+                 │
+                 ▼
+     ┌───────────────────────────────────────────────────────┐
+     │ Calico CNI · VXLAN CrossSubnet · 10.244.0.0/16        │
+     └───────────────────────────┬───────────────────────────┘
+                                 ▼
+     ┌───────────────────────────────────────────────────────┐
+     │ OpenEBS LocalPV Hostpath  (default StorageClass)      │
+     └───┬───────────┬───────────┬───────────────┬───────────┘
+         │ 8Gi PVC   │ 2Gi PVC   │ 1Gi PVC       │ 1Gi PVC
+         ▼           ▼           ▼               ▼
+     Prometheus   Grafana   Alertmanager    ledger StatefulSet
+         ▲            ▲                          │
+         │            └── queries ───────────────┘
+         └──── scrapes 34 targets, incl. the ledger app ──────
 ```
 
 The monitoring stack stores its own data on OpenEBS, so the storage layer is
@@ -93,6 +94,17 @@ Individual stages, in dependency order:
 | `make teardown` | Delete the cluster |
 
 ## Documentation
+
+Start here depending on what you need:
+
+| Document | For |
+|---|---|
+| [EXPLAINED.md](EXPLAINED.md) | **New to Kubernetes?** The whole project from scratch, no prior knowledge assumed |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The complete design — topology, layers, data flows, component inventory |
+| [MANUAL-SETUP.md](MANUAL-SETUP.md) | Build the entire lab by hand, no scripts, every command spelled out |
+| [CLAUDE.md](CLAUDE.md) | Guidance for Claude Code working in this repo |
+
+Then the numbered series, one per layer:
 
 | Doc | Covers |
 |---|---|
