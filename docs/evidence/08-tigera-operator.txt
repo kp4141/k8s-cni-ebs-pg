@@ -1,0 +1,2 @@
+NAME                               READY   STATUS    RESTARTS   AGE   IP           NODE                  NOMINATED NODE   READINESS GATES
+tigera-operator-57886bd678-bkm9k   1/1     Running   0          21s   172.18.0.2   k8s-cni-lab-worker2   <none>           <none>

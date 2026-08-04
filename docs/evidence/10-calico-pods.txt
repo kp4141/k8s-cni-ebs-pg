@@ -1,0 +1,12 @@
+NAME                                       READY   STATUS    RESTARTS   AGE     IP               NODE                        NOMINATED NODE   READINESS GATES
+calico-apiserver-866d56bcf4-bw7x9          1/1     Running   0          2m31s   10.244.40.132    k8s-cni-lab-control-plane   <none>           <none>
+calico-apiserver-866d56bcf4-d79bw          1/1     Running   0          2m31s   10.244.40.135    k8s-cni-lab-control-plane   <none>           <none>
+calico-kube-controllers-58644886d7-kncnb   1/1     Running   0          2m30s   10.244.40.131    k8s-cni-lab-control-plane   <none>           <none>
+calico-node-gdh57                          1/1     Running   0          2m31s   172.18.0.4       k8s-cni-lab-control-plane   <none>           <none>
+calico-node-rtlzj                          1/1     Running   0          2m31s   172.18.0.2       k8s-cni-lab-worker2         <none>           <none>
+calico-node-w6c7q                          1/1     Running   0          2m31s   172.18.0.3       k8s-cni-lab-worker          <none>           <none>
+calico-typha-69c6fdcbcd-8tflc              1/1     Running   0          2m26s   172.18.0.2       k8s-cni-lab-worker2         <none>           <none>
+calico-typha-69c6fdcbcd-znx7c              1/1     Running   0          2m31s   172.18.0.3       k8s-cni-lab-worker          <none>           <none>
+csi-node-driver-6ch7g                      2/2     Running   0          2m31s   10.244.247.193   k8s-cni-lab-worker          <none>           <none>
+csi-node-driver-c782n                      2/2     Running   0          2m31s   10.244.67.1      k8s-cni-lab-worker2         <none>           <none>
+csi-node-driver-vgmd2                      2/2     Running   0          2m31s   10.244.40.129    k8s-cni-lab-control-plane   <none>           <none>
