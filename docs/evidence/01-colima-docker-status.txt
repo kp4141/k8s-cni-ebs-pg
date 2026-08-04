@@ -1,0 +1,4 @@
+
+Server 29.5.2 · aarch64 · 4 CPU
+
+colima

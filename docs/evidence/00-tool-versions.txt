@@ -1,0 +1,21 @@
+Colima:
+colima version 0.10.3
+git commit: 00f6c297e92a82c04a4ab507db0a61435650d7e8
+
+runtime: docker
+arch: aarch64
+client: v29.7.1
+server: v29.5.2
+
+Docker:
+Docker version 29.7.1, build e9452d6e78
+
+kubectl:
+Client Version: v1.36.3
+Kustomize Version: v5.8.1
+
+Kind:
+kind v0.32.0 go1.26.3 darwin/arm64
+
+Helm:
+version.BuildInfo{Version:"v4.2.3", GitCommit:"43e8b7feece8beb0fcba47059ec9b522fd929a64", GitTreeState:"clean", GoVersion:"go1.26.5", KubeClientVersion:"v1.36"}
