@@ -1,0 +1,4 @@
+NAMES                       STATUS
+k8s-cni-lab-control-plane   Up 2 minutes
+k8s-cni-lab-worker          Up 2 minutes
+k8s-cni-lab-worker2         Up 2 minutes

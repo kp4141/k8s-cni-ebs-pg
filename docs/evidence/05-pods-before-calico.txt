@@ -1,0 +1,11 @@
+NAMESPACE            NAME                                                READY   STATUS    RESTARTS   AGE     IP           NODE                        NOMINATED NODE   READINESS GATES
+kube-system          coredns-589f44dc88-69hf6                            0/1     Pending   0          2m13s   <none>       <none>                      <none>           <none>
+kube-system          coredns-589f44dc88-8lk4q                            0/1     Pending   0          2m13s   <none>       <none>                      <none>           <none>
+kube-system          etcd-k8s-cni-lab-control-plane                      1/1     Running   0          2m22s   172.18.0.4   k8s-cni-lab-control-plane   <none>           <none>
+kube-system          kube-apiserver-k8s-cni-lab-control-plane            1/1     Running   0          2m22s   172.18.0.4   k8s-cni-lab-control-plane   <none>           <none>
+kube-system          kube-controller-manager-k8s-cni-lab-control-plane   1/1     Running   0          2m22s   172.18.0.4   k8s-cni-lab-control-plane   <none>           <none>
+kube-system          kube-proxy-cs564                                    1/1     Running   0          2m8s    172.18.0.2   k8s-cni-lab-worker2         <none>           <none>
+kube-system          kube-proxy-hjjxl                                    1/1     Running   0          2m14s   172.18.0.4   k8s-cni-lab-control-plane   <none>           <none>
+kube-system          kube-proxy-wjnqr                                    1/1     Running   0          2m8s    172.18.0.3   k8s-cni-lab-worker          <none>           <none>
+kube-system          kube-scheduler-k8s-cni-lab-control-plane            1/1     Running   0          2m22s   172.18.0.4   k8s-cni-lab-control-plane   <none>           <none>
+local-path-storage   local-path-provisioner-855c7b7774-qsvx9             0/1     Pending   0          2m13s   <none>       <none>                      <none>           <none>
