@@ -1,0 +1,2 @@
+NAME        STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS       VOLUMEATTRIBUTESCLASS   AGE
+probe-pvc   Bound    pvc-e8667ed8-3950-44d9-99f0-2bb79e0a2298   512Mi      RWO            openebs-hostpath   <unset>                 6m20s

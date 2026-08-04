@@ -1,0 +1,2 @@
+NAME        STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS       VOLUMEATTRIBUTESCLASS   AGE
+probe-pvc   Pending                                      openebs-hostpath   <unset>                 34s

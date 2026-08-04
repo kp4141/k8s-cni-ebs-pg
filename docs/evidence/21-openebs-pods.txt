@@ -1,0 +1,2 @@
+NAME                                           READY   STATUS    RESTARTS   AGE   IP               NODE                 NOMINATED NODE   READINESS GATES
+openebs-localpv-provisioner-68dc6dc684-mkqzk   1/1     Running   0          26s   10.244.247.196   k8s-cni-lab-worker   <none>           <none>

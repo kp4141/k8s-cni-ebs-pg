@@ -1,0 +1,2 @@
+NAME   	NAMESPACE	REVISION	UPDATED                           	STATUS  	CHART        	APP VERSION
+openebs	openebs  	1       	2026-08-04 16:32:25.6565 -0400 EDT	deployed	openebs-4.5.1	4.5.1      
