@@ -8,3 +8,4 @@ __pycache__/
 artifacts/
 *.log
 kubeconfig
+.venv/
