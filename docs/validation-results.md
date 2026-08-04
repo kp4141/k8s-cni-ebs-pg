@@ -26,3 +26,13 @@ I installed the Calico CRDs and Tigera Operator, then applied an Installation cu
 The calico-node DaemonSet successfully deployed on all three nodes. All nodes changed from NotReady to Ready, and CoreDNS became available.
 
 The Calico IPPool reported the expected CIDR and CrossSubnet VXLAN mode.
+
+## Networking, DNS and NetworkPolicy Validation
+
+The two NGINX replicas were scheduled on different nodes through required Pod anti-affinity.
+
+The client Pod successfully resolved the Kubernetes Service DNS name and directly reached a web Pod running on another node, validating CoreDNS and the Calico cross-node data path.
+
+The web Service also responded through its fully qualified DNS name, validating DNS, Service endpoints, kube-proxy forwarding and Calico networking.
+
+After applying default-deny ingress, the request timed out. After applying the allow-client policy, the authorized client Pod could access TCP port 80 again.

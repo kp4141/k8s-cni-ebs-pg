@@ -1,0 +1,4 @@
+NAME                   READY   STATUS    RESTARTS   AGE   IP               NODE                  NOMINATED NODE   READINESS GATES
+client                 1/1     Running   0          36s   10.244.247.195   k8s-cni-lab-worker    <none>           <none>
+web-7ff9f97bf5-cgdpx   1/1     Running   0          36s   10.244.67.2      k8s-cni-lab-worker2   <none>           <none>
+web-7ff9f97bf5-kkzq4   1/1     Running   0          36s   10.244.247.194   k8s-cni-lab-worker    <none>           <none>

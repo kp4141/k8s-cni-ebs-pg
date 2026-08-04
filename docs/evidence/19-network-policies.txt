@@ -1,0 +1,3 @@
+NAME                   POD-SELECTOR   AGE
+allow-client-to-web    app=web        49s
+default-deny-ingress   app=web        5m2s
