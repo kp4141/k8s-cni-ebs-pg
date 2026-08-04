@@ -1,0 +1,4 @@
+NAME                                                               STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS       VOLUMEATTRIBUTESCLASS   AGE
+alertmanager-kps-alertmanager-db-alertmanager-kps-alertmanager-0   Bound    pvc-81ac7e93-753d-42f5-939a-bbf5a89cba1b   1Gi        RWO            openebs-hostpath   <unset>                 2m47s
+kps-grafana                                                        Bound    pvc-fd223f51-d294-4370-8c15-c72fa10afe90   2Gi        RWO            openebs-hostpath   <unset>                 2m57s
+prometheus-kps-prometheus-db-prometheus-kps-prometheus-0           Bound    pvc-5f7e21e1-ddb1-4d24-a6b4-47d562fa3df8   8Gi        RWO            openebs-hostpath   <unset>                 2m46s

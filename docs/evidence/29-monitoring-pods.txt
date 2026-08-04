@@ -1,0 +1,9 @@
+NAME                                      READY   STATUS    RESTARTS   AGE     IP               NODE                        NOMINATED NODE   READINESS GATES
+alertmanager-kps-alertmanager-0           2/2     Running   0          2m42s   10.244.67.10     k8s-cni-lab-worker2         <none>           <none>
+kps-grafana-6586c575f4-g7xdb              3/3     Running   0          2m52s   10.244.247.199   k8s-cni-lab-worker          <none>           <none>
+kps-kube-state-metrics-5498c6bd8d-r6hcl   1/1     Running   0          2m52s   10.244.67.7      k8s-cni-lab-worker2         <none>           <none>
+kps-operator-69dd5c6844-mqgzq             1/1     Running   0          2m52s   10.244.67.8      k8s-cni-lab-worker2         <none>           <none>
+kps-prometheus-node-exporter-6jz94        1/1     Running   0          2m52s   172.18.0.2       k8s-cni-lab-worker2         <none>           <none>
+kps-prometheus-node-exporter-mn8b9        1/1     Running   0          2m52s   172.18.0.3       k8s-cni-lab-worker          <none>           <none>
+kps-prometheus-node-exporter-t52fh        1/1     Running   0          2m52s   172.18.0.4       k8s-cni-lab-control-plane   <none>           <none>
+prometheus-kps-prometheus-0               2/2     Running   0          2m41s   10.244.247.200   k8s-cni-lab-worker          <none>           <none>
