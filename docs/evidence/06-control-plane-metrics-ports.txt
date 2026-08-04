@@ -1,0 +1,4 @@
+LISTEN 0      4096               *:2381             *:*    users:(("etcd",pid=560,fd=11))          
+LISTEN 0      4096               *:10249            *:*    users:(("kube-proxy",pid=844,fd=17))    
+LISTEN 0      4096               *:10257            *:*    users:(("kube-controller",pid=632,fd=4))
+LISTEN 0      4096               *:10259            *:*    users:(("kube-scheduler",pid=597,fd=4)) 
