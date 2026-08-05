@@ -1,4 +1,4 @@
-# k8s-cni-prometheus
+# k8s-cni-ebs-pg
 
 A reproducible Kubernetes lab on a macOS laptop: a multi-node cluster built with
 **no CNI**, then Calico installed by hand, OpenEBS for persistent storage,
