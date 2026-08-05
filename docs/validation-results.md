@@ -54,3 +54,24 @@ The Prometheus readiness endpoint returned successfully, Grafana reported a heal
 I deployed the OpenEBS Hostpath exporter and verified the custom per-volume usage metric.
 
 The ledger workload was deployed as a StatefulSet. After deleting ledger-0, Kubernetes recreated the Pod with the same stable identity and reattached its PVC. The previous boot history remained available, proving that the data outlived the Pod.
+
+## Final Result
+
+The complete assignment was deployed and validated on my local macOS environment.
+
+The final environment included:
+
+- One Kind control-plane node and two Kind worker nodes
+- Calico Pod networking and NetworkPolicy enforcement
+- Kubernetes DNS and Service discovery
+- Direct cross-node Pod communication
+- OpenEBS LocalPV Hostpath dynamic storage
+- WaitForFirstConsumer and PV node-affinity validation
+- Prometheus, Grafana and Alertmanager with persistent storage
+- Kubernetes control-plane and node monitoring
+- OpenEBS per-volume usage monitoring
+- A persistent ledger StatefulSet
+- Ledger application-specific Prometheus metrics
+- Repository validation test results
+
+The detailed terminal outputs are stored under docs/evidence, and the main visual evidence is stored under docs/screenshots.

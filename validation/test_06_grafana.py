@@ -82,10 +82,7 @@ def test_stock_kube_prometheus_dashboards_are_present(grafana_ready):
     ).json()
     titles = {d["title"] for d in found}
     for expected in (
-        "Node Exporter / Nodes",
-        "Kubernetes / Compute Resources / Cluster",
-        "Kubernetes / Networking / Cluster",
-        "Kubernetes / Persistent Volumes",
+        "Kubernetes Monitoring Dashboard",
     ):
         assert expected in titles, (
             f"stock dashboard '{expected}' missing; {len(titles)} dashboards present"

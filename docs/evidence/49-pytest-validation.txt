@@ -1,0 +1,69 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.10.9, pytest-8.4.2, pluggy-1.6.0 -- /Users/krishnaprasad/anaconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/krishnaprasad/projects/k8s-cni-ebs-pg
+plugins: anyio-3.5.0, order-1.5.0
+collecting ... collected 53 items
+
+validation/test_01_cluster.py::test_all_nodes_ready PASSED               [  1%]
+validation/test_01_cluster.py::test_topology_is_one_control_plane_two_workers PASSED [  3%]
+validation/test_01_cluster.py::test_no_node_reports_missing_cni PASSED   [  5%]
+validation/test_01_cluster.py::test_calico_daemonset_runs_on_every_node PASSED [  7%]
+validation/test_01_cluster.py::test_coredns_is_running PASSED            [  9%]
+validation/test_01_cluster.py::test_pods_have_addresses_from_the_configured_pod_cidr PASSED [ 11%]
+validation/test_02_networking.py::test_web_replicas_landed_on_different_nodes PASSED [ 13%]
+validation/test_02_networking.py::test_client_runs_on_every_node PASSED  [ 15%]
+validation/test_02_networking.py::test_dns_resolves_the_kubernetes_api_service PASSED [ 16%]
+validation/test_02_networking.py::test_dns_resolves_a_user_service PASSED [ 18%]
+validation/test_02_networking.py::test_pod_to_pod_reaches_every_pod_from_every_node PASSED [ 20%]
+validation/test_02_networking.py::test_service_clusterip_is_reachable PASSED [ 22%]
+validation/test_02_networking.py::test_networkpolicy_is_actually_enforced PASSED [ 24%]
+validation/test_03_storage.py::test_storageclass_exists_with_the_expected_provisioner PASSED [ 26%]
+validation/test_03_storage.py::test_openebs_is_the_only_default_storageclass PASSED [ 28%]
+validation/test_03_storage.py::test_provisioner_is_running PASSED        [ 30%]
+validation/test_03_storage.py::test_pvc_stays_pending_until_a_pod_consumes_it PASSED [ 32%]
+validation/test_03_storage.py::test_provisioned_pv_is_pinned_to_one_node PASSED [ 33%]
+validation/test_04_workload.py::test_volume_is_mounted_from_openebs PASSED [ 35%]
+validation/test_04_workload.py::test_workload_is_writing_to_the_volume PASSED [ 37%]
+validation/test_04_workload.py::test_data_survives_pod_deletion PASSED   [ 39%]
+validation/test_04_workload.py::test_pod_rescheduled_to_the_node_holding_its_data PASSED [ 41%]
+validation/test_05_prometheus.py::test_every_expected_job_has_at_least_one_target PASSED [ 43%]
+validation/test_05_prometheus.py::test_no_target_is_down PASSED          [ 45%]
+validation/test_05_prometheus.py::test_control_plane_components_are_actually_scraped PASSED [ 47%]
+validation/test_05_prometheus.py::test_hostpath_exporter_reports_from_every_node PASSED [ 49%]
+validation/test_05_prometheus.py::test_kube_state_metrics_sees_our_pvcs PASSED [ 50%]
+validation/test_05_prometheus.py::test_recording_rules_are_producing_series PASSED [ 52%]
+validation/test_05_prometheus.py::test_volume_metrics_carry_pvc_identity PASSED [ 54%]
+validation/test_05_prometheus.py::test_demo_volume_usage_is_nonzero_and_distinct PASSED [ 56%]
+validation/test_05_prometheus.py::test_used_ratio_is_a_sane_fraction PASSED [ 58%]
+validation/test_05_prometheus.py::test_demo_volume_is_growing PASSED     [ 60%]
+validation/test_05_prometheus.py::test_alert_rules_are_loaded PASSED     [ 62%]
+validation/test_05_prometheus.py::test_application_publishes_its_own_metrics PASSED [ 64%]
+validation/test_05_prometheus.py::test_application_write_counter_is_advancing PASSED [ 66%]
+validation/test_05_prometheus.py::test_application_reports_no_write_errors PASSED [ 67%]
+validation/test_05_prometheus.py::test_application_histogram_is_well_formed PASSED [ 69%]
+validation/test_05_prometheus.py::test_application_latency_quantile_is_plausible PASSED [ 71%]
+validation/test_05_prometheus.py::test_application_boot_metric_matches_persistence_claim PASSED [ 73%]
+validation/test_05_prometheus.py::test_prometheus_is_storing_on_openebs PASSED [ 75%]
+validation/test_06_grafana.py::test_grafana_reports_healthy PASSED       [ 77%]
+validation/test_06_grafana.py::test_prometheus_datasource_is_reachable_from_grafana PASSED [ 79%]
+validation/test_06_grafana.py::test_stock_kube_prometheus_dashboards_are_present PASSED [ 81%]
+validation/test_06_grafana.py::test_dashboard_was_imported_by_the_sidecar[openebs-storage] PASSED [ 83%]
+validation/test_06_grafana.py::test_dashboard_panels_all_carry_queries[openebs-storage] PASSED [ 84%]
+validation/test_06_grafana.py::test_every_panel_query_returns_data[openebs-storage] PASSED [ 86%]
+validation/test_06_grafana.py::test_dashboard_was_imported_by_the_sidecar[vm-infra] PASSED [ 88%]
+validation/test_06_grafana.py::test_dashboard_panels_all_carry_queries[vm-infra] PASSED [ 90%]
+validation/test_06_grafana.py::test_every_panel_query_returns_data[vm-infra] PASSED [ 92%]
+validation/test_06_grafana.py::test_dashboard_was_imported_by_the_sidecar[app-ledger] PASSED [ 94%]
+validation/test_06_grafana.py::test_dashboard_panels_all_carry_queries[app-ledger] PASSED [ 96%]
+validation/test_06_grafana.py::test_every_panel_query_returns_data[app-ledger] PASSED [ 98%]
+validation/test_06_grafana.py::test_dashboard_variable_resolves_to_real_volumes PASSED [100%]
+
+=============================== warnings summary ===============================
+validation/test_02_networking.py: 12 warnings
+validation/test_04_workload.py: 6 warnings
+  /Users/krishnaprasad/anaconda3/lib/python3.10/site-packages/websocket/_http.py:210: DeprecationWarning: ssl.PROTOCOL_TLS is deprecated
+    context = ssl.SSLContext(sslopt.get('ssl_version', ssl.PROTOCOL_SSLv23))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================= 53 passed, 18 warnings in 137.88s (0:02:17) ==================

@@ -1,0 +1,2 @@
+Error: Command '['/Users/krishnaprasad/projects/k8s-cni-ebs-pg/.venv/bin/python3.12', '-m', 'ensurepip', '--upgrade', '--default-pip']' returned non-zero exit status 1.
+make: *** [.venv/.installed] Error 1
