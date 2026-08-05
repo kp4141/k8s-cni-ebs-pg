@@ -1,0 +1,8 @@
+NAME                      READY   AGE     CONTAINERS   IMAGES
+statefulset.apps/ledger   1/1     2m43s   writer       python:3.12-alpine
+
+NAME           READY   STATUS    RESTARTS   AGE   IP             NODE                  NOMINATED NODE   READINESS GATES
+pod/ledger-0   1/1     Running   0          37s   10.244.67.15   k8s-cni-lab-worker2   <none>           <none>
+
+NAME                                  STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS       VOLUMEATTRIBUTESCLASS   AGE     VOLUMEMODE
+persistentvolumeclaim/data-ledger-0   Bound    pvc-a600bc8c-0003-4ccd-8c4c-fd0a62e14e2c   1Gi        RWO            openebs-hostpath   <unset>                 2m43s   Filesystem

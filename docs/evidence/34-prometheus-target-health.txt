@@ -1,0 +1,13 @@
+apiserver                    up     x1
+coredns                      up     x2
+kps-alertmanager             up     x2
+kps-grafana                  up     x1
+kps-operator                 up     x1
+kps-prometheus               up     x2
+kube-controller-manager      up     x1
+kube-etcd                    up     x1
+kube-proxy                   up     x3
+kube-scheduler               up     x1
+kube-state-metrics           up     x1
+kubelet                      up     x12
+node-exporter                up     x3

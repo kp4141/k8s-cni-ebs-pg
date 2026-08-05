@@ -1,0 +1,2 @@
+NAME            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS       VOLUMEATTRIBUTESCLASS   AGE
+data-ledger-0   Bound    pvc-a600bc8c-0003-4ccd-8c4c-fd0a62e14e2c   1Gi        RWO            openebs-hostpath   <unset>                 36s

@@ -44,3 +44,13 @@ I installed only the OpenEBS LocalPV Hostpath engine because the Kind environmen
 I made openebs-hostpath the only default StorageClass.
 
 A PVC initially remained Pending because the StorageClass uses WaitForFirstConsumer. After deploying a consuming Pod, the PVC became Bound, the Pod wrote data to the mounted volume, and the generated PV showed node affinity for the node containing the Hostpath directory.
+
+## Monitoring and Stateful Workload Validation
+
+I installed kube-prometheus-stack with OpenEBS-backed persistence for Prometheus, Grafana and Alertmanager.
+
+The Prometheus readiness endpoint returned successfully, Grafana reported a healthy database, and the expected Kubernetes targets were reviewed for healthy scrape status.
+
+I deployed the OpenEBS Hostpath exporter and verified the custom per-volume usage metric.
+
+The ledger workload was deployed as a StatefulSet. After deleting ledger-0, Kubernetes recreated the Pod with the same stable identity and reattached its PVC. The previous boot history remained available, proving that the data outlived the Pod.

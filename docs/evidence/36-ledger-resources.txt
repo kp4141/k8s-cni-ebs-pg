@@ -1,0 +1,8 @@
+NAME           READY   STATUS    RESTARTS   AGE
+pod/ledger-0   1/1     Running   0          31s
+
+NAME             TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+service/ledger   ClusterIP   None         <none>        8080/TCP   31s
+
+NAME                      READY   AGE
+statefulset.apps/ledger   1/1     31s

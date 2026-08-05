@@ -1,0 +1,5 @@
+{
+  "database": "ok",
+  "version": "13.1.1",
+  "commit": "e784b7782a43822971f896b3377dc736346a9c66"
+}

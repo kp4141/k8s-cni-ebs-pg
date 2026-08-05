@@ -1,0 +1,4 @@
+=== boot history on this volume ===
+boot 2026-08-05T00:04:41+00:00 pod=ledger-0 node=k8s-cni-lab-worker2
+=== boots recorded: 1 ===
+metrics on :8080/metrics
